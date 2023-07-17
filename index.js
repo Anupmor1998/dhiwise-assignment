@@ -11,6 +11,7 @@ function findVariableFlow(input, dir) {
 
   // Parse the React repository to obtain the list of files
   const files = parseReactRepository(dir);
+  const selectedFiles = [];
 
   // Traverse each file to find the flow of the input variable
   for (const file of files) {
@@ -29,19 +30,19 @@ function findVariableFlow(input, dir) {
           if (isMatch(input, path)) {
             // Add the current file as a node in the graph
             const currentNode = createNode(file, graph);
+            selectedFiles.push(file);
 
             // Check if the identifier is part of an import statement
             if (path.isImportDeclaration()) {
               const importPath = path.get('source').node.value;
               const importFile = resolveFilePath(file, importPath);
-              console.log(importFile, 'importFile');
               if (importFile) {
                 const importNode = createNode(importFile, graph);
                 graph.setEdge(currentNode, importNode);
               }
             }
 
-            // Check if the identifier is used in a function or variable assignment
+            // Check if the identifier is used in a function or variable declaration
             if (path.isFunctionDeclaration() || path.isVariableDeclarator()) {
               const parentCodeBlock = path.findParent(
                 (path) => path.isFunction() || path.isVariableDeclaration()
@@ -61,26 +62,19 @@ function findVariableFlow(input, dir) {
       console.error(error);
     }
   }
-  console.log('Graph Nodes:');
-  const nodes = graph.nodes();
-  for (const node of nodes) {
-    console.log(node, graph.node(node));
-  }
 
-  console.log('Graph Edges:');
-  const edges = graph.edges();
-  for (const edge of edges) {
-    console.log(edge, graph.edge(edge));
+  const variableFlow = {};
+  for (const file of selectedFiles) {
+    const nodeId = getNodeId(file);
+    const fileFlow = recursiveDFS(graph, nodeId);
+    Object.assign(variableFlow, fileFlow);
   }
-  // Perform a recursive depth-first search on the graph
-  const variableFlow = recursiveDFS(graph, getNodeId(files[0]));
 
   // Return the variable flow information
   return variableFlow;
 }
 
 // Function to check if the input matches the path
-// Updated isMatch function
 function isMatch(input, path) {
   const node = path.node;
 
@@ -141,12 +135,6 @@ function parseReactRepository(dir) {
   return files;
 }
 
-// Helper function to resolve the file path based on the current file's directory
-// function resolveFilePath(currentFile, importPath) {
-//   const importFile = path.resolve(path.dirname(currentFile), importPath);
-//   return fs.existsSync(importFile) ? importFile : null;
-// }
-
 function resolveFilePath(currentFile, importPath) {
   const fileExtensions = ['.js', '.jsx', '.ts', '.tsx'];
 
@@ -195,15 +183,19 @@ function recursiveDFS(graph, node) {
     visited.add(currentNode);
     const successors = graph.successors(currentNode);
 
-    if (successors) {
+    if (successors && successors.length > 0) {
       for (const successor of successors) {
-        const edge = graph.edge(currentNode, successor);
         result[successor] = {
           code: graph.node(successor).code,
-          imports: edge ? edge.imports : [],
+          file: graph.node(successor).file,
         };
         dfs(successor);
       }
+    } else {
+      result[currentNode] = {
+        code: graph.node(currentNode).code || '',
+        file: graph.node(currentNode).file || null,
+      };
     }
   }
 
@@ -212,7 +204,7 @@ function recursiveDFS(graph, node) {
 }
 
 // Example usage of the script
-const inputVariable = 'axios';
+const inputVariable = 'categories';
 const rootDir = 'D:/curio-ventures/numee_web_app_develop';
 const srcDir = path.join(rootDir, 'src');
 const variableFlow = findVariableFlow(inputVariable, srcDir);
